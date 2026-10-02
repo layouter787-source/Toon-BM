@@ -14,22 +14,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Qt desktop (ferramentas de host)
+      - name: Qt Android (com Qt desktop junto)
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.0'
-          host: linux
-          target: desktop
-          arch: linux_gcc_64
-
-      - name: Qt Android
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.0'
+          version: '6.8.3'
           host: linux
           target: android
           arch: android_arm64_v8a
-          set-env: false
+          extra: '--autodesktop'
 
       - name: Instalar NDK 26
         run: |
@@ -38,9 +30,10 @@ jobs:
       - name: Build APK
         run: |
           export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/26.1.10909125"
-          QT_ANDROID="$(dirname "$QT_ROOT_DIR")/android_arm64_v8a"
-          "$QT_ANDROID/bin/qt-cmake" -S . -B build \
-            -DQT_HOST_PATH="$QT_ROOT_DIR" \
+          QT_HOST="$(dirname "$QT_ROOT_DIR")/gcc_64"
+          ls "$QT_HOST" > /dev/null
+          "$QT_ROOT_DIR/bin/qt-cmake" -S . -B build \
+            -DQT_HOST_PATH="$QT_HOST" \
             -DANDROID_SDK_ROOT="$ANDROID_HOME" \
             -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT"
           cmake --build build --target apk
