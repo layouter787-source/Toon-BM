@@ -16,6 +16,7 @@ void CanvasItem::setProject(Project *p) {
     if (m_project) {
         connect(m_project, &Project::contentChanged, this, [this] { update(); });
         connect(m_project, &Project::currentFrameChanged, this, [this] { update(); });
+        connect(m_project, &Project::layersChanged, this, [this] { update(); });
     }
     emit projectChanged();
     update();
@@ -40,23 +41,28 @@ qreal CanvasItem::pressureOf(QMouseEvent *e) {
     return p > 0.0 ? p : 1.0;
 }
 
+// Desenha as camadas de baixo para cima, respeitando visibilidade e opacidade.
 void CanvasItem::drawDrawing(QPainter *p, const Drawing &d, qreal opacity) const {
-    for (const Stroke &s : d.strokes) {
-        QColor c = s.color;
-        c.setAlphaF(c.alphaF() * opacity);
-        QPen pen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-        if (s.points.size() == 1) {
-            p->setPen(Qt::NoPen);
-            p->setBrush(c);
-            const qreal r = s.width * (0.3 + 0.7 * s.pressure.value(0, 1.0f)) / 2.0;
-            p->drawEllipse(s.points[0], r, r);
-            continue;
-        }
-        for (int i = 1; i < s.points.size(); ++i) {
-            const qreal pr = (s.pressure.value(i - 1, 1.0f) + s.pressure.value(i, 1.0f)) / 2.0;
-            pen.setWidthF(s.width * (0.3 + 0.7 * pr));
-            p->setPen(pen);
-            p->drawLine(s.points[i - 1], s.points[i]);
+    for (int li = 0; li < d.layers.size(); ++li) {
+        if (!m_project->layerVisible(li)) continue;
+        const qreal layerOpacity = opacity * m_project->layerOpacity(li);
+        for (const Stroke &s : d.layers[li]) {
+            QColor c = s.color;
+            c.setAlphaF(c.alphaF() * layerOpacity);
+            QPen pen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            if (s.points.size() == 1) {
+                p->setPen(Qt::NoPen);
+                p->setBrush(c);
+                const qreal r = s.width * (0.3 + 0.7 * s.pressure.value(0, 1.0f)) / 2.0;
+                p->drawEllipse(s.points[0], r, r);
+                continue;
+            }
+            for (int i = 1; i < s.points.size(); ++i) {
+                const qreal pr = (s.pressure.value(i - 1, 1.0f) + s.pressure.value(i, 1.0f)) / 2.0;
+                pen.setWidthF(s.width * (0.3 + 0.7 * pr));
+                p->setPen(pen);
+                p->drawLine(s.points[i - 1], s.points[i]);
+            }
         }
     }
 }
@@ -78,6 +84,8 @@ void CanvasItem::paint(QPainter *p) {
 
 void CanvasItem::mousePressEvent(QMouseEvent *e) {
     if (!m_project || m_project->playing()) return;
+    // Não desenha em camada oculta.
+    if (!m_project->layerVisible(m_project->currentLayer())) return;
     const QPointF s = toStage(e->position());
     m_down = true;
     if (m_eraser) m_project->eraseAt(s.x(), s.y(), m_size * 2.0);
