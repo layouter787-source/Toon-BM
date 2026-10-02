@@ -1,0 +1,7 @@
+build/
+*.user
+.cache/
+.idea/
+.vscode/
+*.apk
+*.aab
