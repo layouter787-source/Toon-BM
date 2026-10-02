@@ -1,7 +1,16 @@
 name: Android APK
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   QT_VERSION: '6.8.3'
@@ -10,6 +19,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -49,3 +59,4 @@ jobs:
         with:
           name: ToonBM-apk
           path: build/**/*.apk
+          retention-days: 30
