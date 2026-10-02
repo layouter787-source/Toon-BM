@@ -112,6 +112,104 @@ ApplicationWindow {
                 }
             }
         }
+
+        // Painel de camadas (a de cima da lista é a camada da frente)
+        ColumnLayout {
+            Layout.preferredWidth: 170
+            Layout.fillHeight: true
+            Layout.margins: 6
+            spacing: 6
+
+            Label { text: "Camadas"; color: "white"; font.bold: true }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Button { text: "+"; Layout.fillWidth: true; onClicked: project.addLayer() }
+                Button { text: "−"; Layout.fillWidth: true; enabled: project.layerCount > 1; onClicked: project.removeLayer() }
+                Button { text: "▲"; Layout.fillWidth: true; onClicked: project.moveLayerUp() }
+                Button { text: "▼"; Layout.fillWidth: true; onClicked: project.moveLayerDown() }
+            }
+
+            ListView {
+                id: layerList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 4
+                model: project.layerCount
+                delegate: Rectangle {
+                    id: row
+                    required property int index
+                    readonly property int li: project.layerCount - 1 - index
+                    width: ListView.view.width
+                    height: 44
+                    radius: 4
+                    color: li === project.currentLayer ? "#3d85f5" : "#444"
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: project.currentLayer = row.li
+                        onDoubleClicked: { renameField.text = project.layerName(row.li); renamePopup.targetLayer = row.li; renamePopup.open() }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        spacing: 6
+
+                        // Olho: visível / oculta
+                        Rectangle {
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            radius: 11
+                            property bool shown: { project.layersRevision; return project.layerVisible(row.li) }
+                            color: shown ? "white" : "#222"
+                            border.color: "white"
+                            MouseArea { anchors.fill: parent; onClicked: project.setLayerVisible(row.li, !parent.shown) }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            color: "white"
+                            text: { project.layersRevision; return project.layerName(row.li) }
+                        }
+                    }
+                }
+            }
+
+            Label { text: "Opacidade"; color: "white" }
+            Slider {
+                id: opacitySlider
+                Layout.fillWidth: true
+                from: 0; to: 1
+                value: 1
+                onMoved: project.setLayerOpacity(project.currentLayer, value)
+            }
+            Connections {
+                target: project
+                function onCurrentLayerChanged() { opacitySlider.value = project.layerOpacity(project.currentLayer) }
+            }
+        }
+    }
+
+    Popup {
+        id: renamePopup
+        property int targetLayer: 0
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 300
+
+        ColumnLayout {
+            anchors.fill: parent
+            Label { text: "Nome da camada" }
+            TextField { id: renameField; Layout.fillWidth: true }
+            Button {
+                text: "OK"
+                onClicked: { project.renameLayer(renamePopup.targetLayer, renameField.text); renamePopup.close() }
+            }
+        }
     }
 
     Popup {
@@ -128,7 +226,7 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 TextArea {
                     id: scriptInput
-                    placeholderText: "project.addFrame();\nproject.fps = 8;\nconsole.log(project.frameCount);"
+                    placeholderText: "project.addLayer();\nproject.addFrame();\nconsole.log(project.layerCount);"
                     wrapMode: TextArea.Wrap
                 }
             }
