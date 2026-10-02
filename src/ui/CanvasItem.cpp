@@ -1,6 +1,7 @@
 #include "CanvasItem.h"
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
 
 CanvasItem::CanvasItem(QQuickItem *parent) : QQuickPaintedItem(parent) {
@@ -41,6 +42,52 @@ qreal CanvasItem::pressureOf(QMouseEvent *e) {
     return p > 0.0 ? p : 1.0;
 }
 
+// Desenha um traço suavizado: curvas quadráticas entre os pontos médios dos segmentos,
+// usando cada ponto capturado como ponto de controle. A espessura segue a pressão.
+static void drawSmoothStroke(QPainter *p, const Stroke &s, const QColor &c) {
+    const int n = s.points.size();
+    if (n == 0) return;
+
+    auto widthAt = [&](int i) { return s.width * (0.3 + 0.7 * s.pressure.value(i, 1.0f)); };
+
+    if (n == 1) {
+        const qreal r = widthAt(0) / 2.0;
+        p->setPen(Qt::NoPen);
+        p->setBrush(c);
+        p->drawEllipse(s.points[0], r, r);
+        return;
+    }
+
+    QPen pen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p->setBrush(Qt::NoBrush);
+
+    if (n == 2) {
+        pen.setWidthF((widthAt(0) + widthAt(1)) / 2.0);
+        p->setPen(pen);
+        p->drawLine(s.points[0], s.points[1]);
+        return;
+    }
+
+    auto mid = [&](int i) { return (s.points[i] + s.points[i + 1]) / 2.0; };
+
+    pen.setWidthF(widthAt(0));
+    p->setPen(pen);
+    p->drawLine(s.points[0], mid(0));
+
+    for (int i = 1; i < n - 1; ++i) {
+        QPainterPath path;
+        path.moveTo(mid(i - 1));
+        path.quadTo(s.points[i], mid(i));
+        pen.setWidthF(widthAt(i));
+        p->setPen(pen);
+        p->drawPath(path);
+    }
+
+    pen.setWidthF(widthAt(n - 1));
+    p->setPen(pen);
+    p->drawLine(mid(n - 2), s.points[n - 1]);
+}
+
 // Desenha as camadas de baixo para cima, respeitando visibilidade e opacidade.
 void CanvasItem::drawDrawing(QPainter *p, const Drawing &d, qreal opacity) const {
     for (int li = 0; li < d.layers.size(); ++li) {
@@ -49,20 +96,7 @@ void CanvasItem::drawDrawing(QPainter *p, const Drawing &d, qreal opacity) const
         for (const Stroke &s : d.layers[li]) {
             QColor c = s.color;
             c.setAlphaF(c.alphaF() * layerOpacity);
-            QPen pen(c, s.width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-            if (s.points.size() == 1) {
-                p->setPen(Qt::NoPen);
-                p->setBrush(c);
-                const qreal r = s.width * (0.3 + 0.7 * s.pressure.value(0, 1.0f)) / 2.0;
-                p->drawEllipse(s.points[0], r, r);
-                continue;
-            }
-            for (int i = 1; i < s.points.size(); ++i) {
-                const qreal pr = (s.pressure.value(i - 1, 1.0f) + s.pressure.value(i, 1.0f)) / 2.0;
-                pen.setWidthF(s.width * (0.3 + 0.7 * pr));
-                p->setPen(pen);
-                p->drawLine(s.points[i - 1], s.points[i]);
-            }
+            drawSmoothStroke(p, s, c);
         }
     }
 }
