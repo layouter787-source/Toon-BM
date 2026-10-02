@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import ToonBM
+import ToonBM.Core 1.0
 
 ApplicationWindow {
     id: win
