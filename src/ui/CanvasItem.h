@@ -1,13 +1,12 @@
 #pragma once
 #include <QColor>
 #include <QQuickPaintedItem>
-#include <QtQml/qqml.h>
 #include "core/Project.h"
 
 // Palco de desenho. Coordenadas internas fixas em 1920x1080, escaladas para caber no item.
+// Registrado no QML manualmente em main.cpp (módulo "ToonBM.Core").
 class CanvasItem : public QQuickPaintedItem {
     Q_OBJECT
-    QML_ELEMENT
     Q_PROPERTY(Project *project READ project WRITE setProject NOTIFY projectChanged)
     Q_PROPERTY(QColor brushColor READ brushColor WRITE setBrushColor NOTIFY brushChanged)
     Q_PROPERTY(qreal brushSize READ brushSize WRITE setBrushSize NOTIFY brushChanged)
