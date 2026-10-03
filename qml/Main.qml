@@ -14,7 +14,8 @@ ApplicationWindow {
     // Tela larga (tablet): camadas fixas na lateral. Tela estreita (celular): painel que abre pela borda.
     readonly property bool wide: width >= 900
     property color brush: "#000000"
-    property bool eraser: false
+    // 0 = caneta, 1 = borracha, 2 = selecionar, 3 = conta-gotas
+    property int tool: 0
     // Evita o "project: project" do CanvasItem se referir a si mesmo.
     property QtObject appProject: project
 
@@ -22,6 +23,26 @@ ApplicationWindow {
         renameField.text = project.layerName(layer)
         renamePopup.targetLayer = layer
         renamePopup.open()
+    }
+
+    // Aplica uma cor da paleta: recolore a seleção, ou volta para a caneta.
+    function useColor(c) {
+        win.brush = c
+        if (win.tool === 2 && project.hasSelection) project.recolorSelected(c)
+        else win.tool = 0
+    }
+
+    ListModel {
+        id: paletteModel
+        ListElement { swatch: "#000000" }
+        ListElement { swatch: "#ffffff" }
+        ListElement { swatch: "#e53935" }
+        ListElement { swatch: "#fb8c00" }
+        ListElement { swatch: "#fdd835" }
+        ListElement { swatch: "#43a047" }
+        ListElement { swatch: "#1e88e5" }
+        ListElement { swatch: "#8e24aa" }
+        ListElement { swatch: "#795548" }
     }
 
     // ---------- Painel de camadas (usado fixo e no Drawer) ----------
@@ -121,8 +142,11 @@ ApplicationWindow {
                 rightPadding: 6
                 topPadding: 6
 
-                Button { text: "Caneta"; checkable: true; checked: !win.eraser; onClicked: win.eraser = false }
-                Button { text: "Borracha"; checkable: true; checked: win.eraser; onClicked: win.eraser = true }
+                Button { text: "Caneta"; highlighted: win.tool === 0; onClicked: win.tool = 0 }
+                Button { text: "Borracha"; highlighted: win.tool === 1; onClicked: win.tool = 1 }
+                Button { text: "Selecionar"; highlighted: win.tool === 2; onClicked: win.tool = 2 }
+                Button { text: "Conta-gotas"; highlighted: win.tool === 3; onClicked: win.tool = 3 }
+                Button { text: "Apagar seleção"; visible: project.hasSelection; onClicked: project.deleteSelected() }
                 Button { text: "Desfazer"; onClicked: project.undo() }
                 Button { text: "Limpar"; onClicked: project.clearFrame() }
                 Button { text: "Ajustar"; onClicked: canvas.resetView() }
@@ -141,32 +165,68 @@ ApplicationWindow {
             Layout.fillHeight: true
             spacing: 0
 
-            // Cores e tamanho do pincel
+            // Paleta de cores e tamanho do pincel
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 52
+                Layout.preferredHeight: 56
                 color: "#232326"
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.margins: 6
-                    spacing: 6
+                    spacing: 8
 
-                    Repeater {
-                        model: ["#000000", "#e53935", "#1e88e5", "#43a047", "#fdd835", "#8e24aa"]
-                        delegate: Rectangle {
-                            required property string modelData
-                            Layout.preferredWidth: 38
-                            Layout.preferredHeight: 38
-                            radius: 19
-                            color: modelData
-                            border.width: win.brush == modelData ? 4 : 1
-                            border.color: "white"
-                            MouseArea { anchors.fill: parent; onClicked: { win.brush = parent.modelData; win.eraser = false } }
+                    // Cor atual
+                    Rectangle {
+                        Layout.preferredWidth: 40
+                        Layout.preferredHeight: 40
+                        radius: 6
+                        color: win.brush
+                        border.width: 2
+                        border.color: "white"
+                        MouseArea { anchors.fill: parent; onClicked: colorPopup.open() }
+                    }
+
+                    Flickable {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 44
+                        contentWidth: swatchRow.width
+                        contentHeight: height
+                        flickableDirection: Flickable.HorizontalFlick
+                        clip: true
+
+                        Row {
+                            id: swatchRow
+                            spacing: 6
+                            topPadding: 3
+
+                            Repeater {
+                                model: paletteModel
+                                delegate: Rectangle {
+                                    required property string swatch
+                                    width: 38
+                                    height: 38
+                                    radius: 19
+                                    color: swatch
+                                    border.width: Qt.colorEqual(win.brush, swatch) ? 4 : 1
+                                    border.color: "#3d85f5"
+                                    MouseArea { anchors.fill: parent; onClicked: win.useColor(parent.swatch) }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 38
+                                height: 38
+                                radius: 19
+                                color: "#444"
+                                border.color: "white"
+                                Label { anchors.centerIn: parent; text: "+"; color: "white"; font.pixelSize: 22 }
+                                MouseArea { anchors.fill: parent; onClicked: colorPopup.open() }
+                            }
                         }
                     }
 
-                    Slider { id: sizeSlider; Layout.fillWidth: true; Layout.minimumWidth: 80; from: 1; to: 60; value: 6 }
+                    Slider { id: sizeSlider; Layout.preferredWidth: 130; from: 1; to: 60; value: 6 }
                 }
             }
 
@@ -179,8 +239,9 @@ ApplicationWindow {
                 project: win.appProject
                 brushColor: win.brush
                 brushSize: sizeSlider.value
-                eraser: win.eraser
+                tool: win.tool
                 onionSkin: onionBox.checked
+                onColorPicked: (c) => { win.brush = c; win.tool = 0 }
 
                 PinchHandler {
                     id: pinch
@@ -241,7 +302,7 @@ ApplicationWindow {
                             Button { text: "Duplicar"; onClicked: project.duplicateFrame() }
                             Button { text: "Remover"; onClicked: project.removeFrame() }
                             CheckBox { id: onionBox; text: "Onion"; checked: true }
-                            Label { text: "FPS"; color: "white"; anchors.verticalCenter: undefined; verticalAlignment: Text.AlignVCenter; height: 48 }
+                            Label { text: "FPS"; color: "white"; verticalAlignment: Text.AlignVCenter; height: 48 }
                             SpinBox { from: 1; to: 60; value: project.fps; editable: true; onValueModified: project.fps = value }
                             Label { text: (project.currentFrame + 1) + " / " + project.frameCount; color: "white"; verticalAlignment: Text.AlignVCenter; height: 48 }
                         }
@@ -290,6 +351,65 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: 10
             onRenameRequested: (layer) => win.askRename(layer)
+        }
+    }
+
+    // Seletor de cor (matiz, saturação e brilho)
+    Popup {
+        id: colorPopup
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(win.width - 40, 340)
+        property real h: 0
+        property real s: 1
+        property real v: 0
+        readonly property color current: Qt.hsva(h, s, v, 1)
+
+        onAboutToShow: {
+            h = Math.max(0, win.brush.hsvHue)
+            s = win.brush.hsvSaturation
+            v = win.brush.hsvValue
+            hueSlider.value = h
+            satSlider.value = s
+            valSlider.value = v
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 6
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 52
+                radius: 6
+                color: colorPopup.current
+                border.color: "#888"
+            }
+
+            Label { text: "Matiz" }
+            Slider { id: hueSlider; Layout.fillWidth: true; from: 0; to: 1; onMoved: colorPopup.h = value }
+            Label { text: "Saturação" }
+            Slider { id: satSlider; Layout.fillWidth: true; from: 0; to: 1; onMoved: colorPopup.s = value }
+            Label { text: "Brilho" }
+            Slider { id: valSlider; Layout.fillWidth: true; from: 0; to: 1; onMoved: colorPopup.v = value }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Button {
+                    text: "Usar"
+                    Layout.fillWidth: true
+                    onClicked: { win.useColor(colorPopup.current); colorPopup.close() }
+                }
+                Button {
+                    text: "Salvar na paleta"
+                    Layout.fillWidth: true
+                    onClicked: {
+                        paletteModel.append({ "swatch": colorPopup.current.toString() })
+                        win.useColor(colorPopup.current)
+                        colorPopup.close()
+                    }
+                }
+            }
         }
     }
 
