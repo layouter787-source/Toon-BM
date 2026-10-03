@@ -12,6 +12,9 @@ class CanvasItem : public QQuickPaintedItem {
     Q_PROPERTY(qreal brushSize READ brushSize WRITE setBrushSize NOTIFY brushChanged)
     Q_PROPERTY(bool eraser READ eraser WRITE setEraser NOTIFY brushChanged)
     Q_PROPERTY(bool onionSkin READ onionSkin WRITE setOnionSkin NOTIFY brushChanged)
+    Q_PROPERTY(qreal zoom READ zoom WRITE setZoom NOTIFY viewChanged)
+    Q_PROPERTY(qreal panX READ panX WRITE setPanX NOTIFY viewChanged)
+    Q_PROPERTY(qreal panY READ panY WRITE setPanY NOTIFY viewChanged)
 public:
     static constexpr qreal kStageW = 1920.0;
     static constexpr qreal kStageH = 1080.0;
@@ -30,9 +33,22 @@ public:
     bool onionSkin() const { return m_onion; }
     void setOnionSkin(bool o) { m_onion = o; emit brushChanged(); update(); }
 
+    qreal zoom() const { return m_zoom; }
+    void setZoom(qreal z) { m_zoom = qBound(0.2, z, 10.0); emit viewChanged(); update(); }
+    qreal panX() const { return m_panX; }
+    void setPanX(qreal v) { m_panX = v; emit viewChanged(); update(); }
+    qreal panY() const { return m_panY; }
+    void setPanY(qreal v) { m_panY = v; emit viewChanged(); update(); }
+
+    // Volta o palco para "caber na tela".
+    Q_INVOKABLE void resetView();
+    // Cancela o traço em andamento (usado quando começa um gesto de dois dedos).
+    Q_INVOKABLE void cancelStroke();
+
 signals:
     void projectChanged();
     void brushChanged();
+    void viewChanged();
 
 protected:
     void mousePressEvent(QMouseEvent *e) override;
@@ -52,4 +68,7 @@ private:
     bool m_eraser = false;
     bool m_onion = true;
     bool m_down = false;
+    qreal m_zoom = 1.0;
+    qreal m_panX = 0.0;
+    qreal m_panY = 0.0;
 };
