@@ -23,6 +23,14 @@ void CanvasItem::setProject(Project *p) {
     update();
 }
 
+void CanvasItem::setTool(int t) {
+    if (t == m_tool) return;
+    m_tool = t;
+    if (m_tool != ToolSelect && m_project) m_project->clearSelection();
+    m_down = false;
+    emit brushChanged();
+}
+
 void CanvasItem::resetView() {
     m_zoom = 1.0;
     m_panX = 0.0;
@@ -32,7 +40,7 @@ void CanvasItem::resetView() {
 }
 
 void CanvasItem::cancelStroke() {
-    if (m_down && !m_eraser && m_project) m_project->undo();
+    if (m_down && m_tool == ToolPen && m_project) m_project->undo();
     m_down = false;
 }
 
@@ -138,6 +146,13 @@ void CanvasItem::paint(QPainter *p) {
     drawDrawing(p, m_project->drawing(cur), 1.0);
     p->restore();
 
+    // Contorno do traço selecionado.
+    if (m_project->hasSelection()) {
+        p->setPen(QPen(QColor(61, 133, 245), 2.0 / s, Qt::DashLine));
+        p->setBrush(Qt::NoBrush);
+        p->drawRect(m_project->selectedBounds());
+    }
+
     // Moldura da câmera.
     p->setPen(QPen(QColor(25, 25, 25), 2.0 / s));
     p->setBrush(Qt::NoBrush);
@@ -146,20 +161,52 @@ void CanvasItem::paint(QPainter *p) {
 
 void CanvasItem::mousePressEvent(QMouseEvent *e) {
     if (!m_project || m_project->playing()) return;
-    // Não desenha em camada oculta.
-    if (!m_project->layerVisible(m_project->currentLayer())) return;
     const QPointF s = toStage(e->position());
+    // Raio de toque constante na tela, independente do zoom.
+    const qreal pickRadius = 14.0 / scale();
+
+    if (m_tool == ToolEyedropper) {
+        const QString c = m_project->pickColor(s.x(), s.y(), pickRadius);
+        if (!c.isEmpty()) emit colorPicked(c);
+        e->accept();
+        return;
+    }
+
+    // Não age em camada oculta.
+    if (!m_project->layerVisible(m_project->currentLayer())) return;
+
     m_down = true;
-    if (m_eraser) m_project->eraseAt(s.x(), s.y(), m_size * 2.0);
-    else m_project->beginStroke(m_color, m_size, s.x(), s.y(), pressureOf(e));
+    m_last = s;
+    switch (m_tool) {
+    case ToolEraser:
+        m_project->eraseAt(s.x(), s.y(), m_size * 2.0);
+        break;
+    case ToolSelect:
+        m_project->selectAt(s.x(), s.y(), pickRadius);
+        break;
+    default:
+        m_project->beginStroke(m_color, m_size, s.x(), s.y(), pressureOf(e));
+        break;
+    }
     e->accept();
 }
 
 void CanvasItem::mouseMoveEvent(QMouseEvent *e) {
     if (!m_project || !m_down) return;
     const QPointF s = toStage(e->position());
-    if (m_eraser) m_project->eraseAt(s.x(), s.y(), m_size * 2.0);
-    else m_project->appendPoint(s.x(), s.y(), pressureOf(e));
+    switch (m_tool) {
+    case ToolEraser:
+        m_project->eraseAt(s.x(), s.y(), m_size * 2.0);
+        break;
+    case ToolSelect:
+        if (m_project->hasSelection())
+            m_project->moveSelected(s.x() - m_last.x(), s.y() - m_last.y());
+        m_last = s;
+        break;
+    default:
+        m_project->appendPoint(s.x(), s.y(), pressureOf(e));
+        break;
+    }
     e->accept();
 }
 
