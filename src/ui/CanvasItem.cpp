@@ -23,13 +23,29 @@ void CanvasItem::setProject(Project *p) {
     update();
 }
 
+void CanvasItem::resetView() {
+    m_zoom = 1.0;
+    m_panX = 0.0;
+    m_panY = 0.0;
+    emit viewChanged();
+    update();
+}
+
+void CanvasItem::cancelStroke() {
+    if (m_down && !m_eraser && m_project) m_project->undo();
+    m_down = false;
+}
+
+// Escala "caber na tela" multiplicada pelo zoom do usuário.
 qreal CanvasItem::scale() const {
-    return qMax(0.01, qMin(width() / kStageW, height() / kStageH));
+    const qreal fit = qMax(0.01, qMin((width() - 24.0) / kStageW, (height() - 24.0) / kStageH));
+    return fit * m_zoom;
 }
 
 QPointF CanvasItem::offset() const {
     const qreal s = scale();
-    return QPointF((width() - kStageW * s) / 2.0, (height() - kStageH * s) / 2.0);
+    return QPointF((width() - kStageW * s) / 2.0 + m_panX,
+                   (height() - kStageH * s) / 2.0 + m_panY);
 }
 
 QPointF CanvasItem::toStage(const QPointF &p) const {
@@ -102,18 +118,30 @@ void CanvasItem::drawDrawing(QPainter *p, const Drawing &d, qreal opacity) const
 }
 
 void CanvasItem::paint(QPainter *p) {
+    // Área de trabalho cinza, como no Harmony.
+    p->fillRect(QRectF(0, 0, width(), height()), QColor(0x6e, 0x6e, 0x6e));
     if (!m_project) return;
+
     p->setRenderHint(QPainter::Antialiasing);
+    const qreal s = scale();
     p->translate(offset());
-    p->scale(scale(), scale());
+    p->scale(s, s);
+
     const QRectF stage(0, 0, kStageW, kStageH);
     p->fillRect(stage, Qt::white);
-    p->setClipRect(stage);
 
+    p->save();
+    p->setClipRect(stage);
     const int cur = m_project->currentFrame();
     if (m_onion && !m_project->playing() && cur > 0)
         drawDrawing(p, m_project->drawing(cur - 1), 0.25);
     drawDrawing(p, m_project->drawing(cur), 1.0);
+    p->restore();
+
+    // Moldura da câmera.
+    p->setPen(QPen(QColor(25, 25, 25), 2.0 / s));
+    p->setBrush(Qt::NoBrush);
+    p->drawRect(stage);
 }
 
 void CanvasItem::mousePressEvent(QMouseEvent *e) {
