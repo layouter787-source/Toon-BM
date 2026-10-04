@@ -32,3 +32,20 @@ set_target_properties(ToonBM PROPERTIES
     QT_ANDROID_VERSION_NAME "0.1.0"
     QT_ANDROID_VERSION_CODE 1
 )
+
+# Testes automatizados do núcleo (somente desktop; não entram no APK).
+if(NOT ANDROID)
+    find_package(Qt6 6.5 QUIET COMPONENTS Test)
+    if(TARGET Qt6::Test)
+        enable_testing()
+        qt_add_executable(tst_project
+            tests/tst_project.cpp
+            src/core/Drawing.h
+            src/core/Project.h
+            src/core/Project.cpp
+        )
+        target_include_directories(tst_project PRIVATE src)
+        target_link_libraries(tst_project PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+        add_test(NAME tst_project COMMAND tst_project)
+    endif()
+endif()
