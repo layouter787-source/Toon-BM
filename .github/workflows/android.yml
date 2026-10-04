@@ -1,4 +1,4 @@
-name: Android APK
+name: CI
 
 on:
   push:
@@ -6,18 +6,73 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'ci/**'
   workflow_dispatch:
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: write
 
 env:
   QT_VERSION: '6.8.3'
   NDK_VERSION: '26.1.10909125'
 
 jobs:
-  build:
+  desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Dependências do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libegl-dev libxkbcommon-dev libvulkan-dev libfontconfig1-dev libdbus-1-dev
+
+      - name: Instalar Qt desktop
+        run: |
+          pip install -U aqtinstall
+          aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 --outputdir "$HOME/Qt"
+
+      - name: Compilar e testar
+        run: |
+          mkdir -p logs
+          set +e
+          set +o pipefail
+          cmake -S . -B build-desktop -DCMAKE_PREFIX_PATH="$HOME/Qt/$QT_VERSION/gcc_64" > logs/desktop-configure.log 2>&1
+          c1=$?
+          c2=-1; c3=-1; c4=-1
+          if [ $c1 -eq 0 ]; then
+            cmake --build build-desktop --target tst_project -j"$(nproc)" > logs/desktop-build-tests.log 2>&1
+            c2=$?
+          fi
+          if [ $c2 -eq 0 ]; then
+            QT_QPA_PLATFORM=offscreen ctest --test-dir build-desktop --output-on-failure > logs/desktop-test.log 2>&1
+            c3=$?
+          fi
+          if [ $c1 -eq 0 ]; then
+            cmake --build build-desktop -j"$(nproc)" > logs/desktop-build-app.log 2>&1
+            c4=$?
+          fi
+          echo "configurar=$c1 compilar_testes=$c2 testes=$c3 compilar_app=$c4" > logs/desktop-status.txt
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ]
+
+      - name: Enviar logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-desktop
+          path: logs/
+          if-no-files-found: ignore
+
+  android:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -32,12 +87,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Instalar Qt (desktop + Android) com aqtinstall
+      - name: Instalar Qt (desktop + Android)
         run: |
           pip install -U aqtinstall
           aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 --outputdir "$HOME/Qt"
           aqt install-qt linux android "$QT_VERSION" android_arm64_v8a --outputdir "$HOME/Qt"
-          ls "$HOME/Qt/$QT_VERSION"
 
       - name: Instalar NDK e plataforma Android
         run: |
@@ -46,17 +100,105 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" --install "ndk;$NDK_VERSION" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Build APK
+      - name: Compilar APK
         run: |
+          mkdir -p logs
           export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/$NDK_VERSION"
+          set +e
+          set +o pipefail
           "$HOME/Qt/$QT_VERSION/android_arm64_v8a/bin/qt-cmake" -S . -B build \
             -DQT_HOST_PATH="$HOME/Qt/$QT_VERSION/gcc_64" \
             -DANDROID_SDK_ROOT="$ANDROID_HOME" \
-            -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT"
-          cmake --build build --target apk
+            -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT" > logs/android-configure.log 2>&1
+          c1=$?
+          c2=-1
+          if [ $c1 -eq 0 ]; then
+            cmake --build build --target apk > logs/android-build.log 2>&1
+            c2=$?
+          fi
+          echo "configurar=$c1 compilar_apk=$c2" > logs/android-status.txt
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ]
+
+      - name: Enviar logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-android
+          path: logs/
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
           name: ToonBM-apk
           path: build/**/*.apk
           retention-days: 30
+
+  report:
+    needs: [desktop, android]
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: logs-*
+          path: logs
+          merge-multiple: true
+
+      - name: Gerar relatório
+        run: |
+          set +e
+          set +o pipefail
+          mkdir -p ci
+          PATTERN='CMake Error|error:|FAILED|undefined reference|FAIL!|What went wrong|Exception|fatal error|Could not'
+          {
+            echo "# Relatório do CI"
+            echo
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Atualizado em: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "- Execução: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Desktop (build e testes): ${{ needs.desktop.result }}"
+            echo "- Android (APK): ${{ needs.android.result }}"
+            echo
+            echo "## Etapas"
+            for f in logs/*-status.txt; do
+              if [ -f "$f" ]; then echo "- $(basename "$f" -status.txt): $(cat "$f")"; fi
+            done
+            echo
+            echo "## Testes"
+            if [ -f logs/desktop-test.log ]; then
+              grep -E '^(PASS|FAIL!|Totals)' logs/desktop-test.log | head -60
+            else
+              echo "Os testes não rodaram."
+            fi
+            echo
+            echo "## Erros"
+            found=0
+            for f in logs/*.log; do
+              [ -f "$f" ] || continue
+              if grep -qE "$PATTERN" "$f"; then
+                found=1
+                echo
+                echo "### $(basename "$f")"
+                echo '```'
+                grep -E "$PATTERN" -B2 -A5 "$f" | tr -d '\r' | head -80
+                echo '```'
+              fi
+            done
+            if [ $found -eq 0 ]; then echo "Nenhum erro encontrado."; fi
+          } > ci/report.md
+
+      - name: Publicar relatório
+        run: |
+          git config user.name "toon-bm-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git add ci/report.md
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "ci: relatório do build [skip ci]"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && break
+            sleep 5
+          done
